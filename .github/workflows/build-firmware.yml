@@ -132,8 +132,8 @@ jobs:
           echo "WRT_REPO=https://github.com/$REPO.git" >> $GITHUB_ENV
           echo "WRT_SOURCE=$REPO" >> $GITHUB_ENV
           echo "WRT_BRANCH=$BRANCH" >> $GITHUB_ENV
-          echo "WRT_INFO=${REPO\%\%/*}" >> $GITHUB_ENV
-          echo "WRT_DATE=$(TZ=UTC-8 date +'\%y.\%m.\%d-\%H.\%M.\%S')" >> $GITHUB_ENV
+          echo "WRT_INFO=$(echo "$REPO" | cut -d'/' -f1)" >> $GITHUB_ENV
+echo "WRT_MARK=$(echo "$GITHUB_REPOSITORY" | cut -d'/' -f1)" >> $GITHUB_ENV
           echo "WRT_MARK=${GITHUB_REPOSITORY\%\%/*}" >> $GITHUB_ENV
           echo "WRT_TARGET=mediatek_filogic" >> $GITHUB_ENV
 
