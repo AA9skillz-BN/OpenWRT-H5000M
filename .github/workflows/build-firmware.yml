@@ -211,7 +211,8 @@ jobs:
             echo "WRT_KVER=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^kernel - \K[\d\.]+' {} \; \vert{} head -n 1)" >> $GITHUB_ENV
             echo "WRT_LIST=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^luci-(app\vert{}theme)[^ ]*' {} \; \vert{} tr '\n' ' ')" >> $GITHUB_ENV
 
-            find ./bin/targets/ -iregex ".*\(buildinfo\Vert{}json\Vert{}sha256sums\Vert{}packages\)$" -exec rm -rf {} + 2>/dev/null || true
+            # 清理无用文件，但保留 sha256sums 校验文件给 OTA 使用
+            find ./bin/targets/ -iregex ".*\(buildinfo\Vert{}json\Vert{}packages\)$" -exec rm -rf {} + 2>/dev/null || true
 
             for FILE in $(find ./bin/targets/ -type f -iname "*$WRT_TARGET*"); do
               EXT=$(basename "$FILE" | cut -d '.' -f 2-)
