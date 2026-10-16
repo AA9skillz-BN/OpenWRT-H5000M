@@ -111,7 +111,7 @@ jobs:
           apt_retry autoremove --purge
           apt_retry autoclean
           apt_retry clean
-          apt_retry install dos2unix libfuse-dev jq unzip
+          apt_retry install dos2unix libfuse-dev jq unzip build-essential
 
           for i in 1 2 3; do
             timeout 600 sudo bash -c 'bash <(curl -sL --retry 3 --connect-timeout 30 https://build-scripts.immortalwrt.org/init_build_environment.sh)' && break
@@ -139,14 +139,14 @@ jobs:
 
       - name: Clone OpenWrt Source
         run: |
-          git clone --depth=1 --single-branch --branch $WRT_BRANCH$WRT_REPO ./wrt/
+          git clone --depth=1 --single-branch --branch "$WRT_BRANCH" "$WRT_REPO" ./wrt/
           cd ./wrt/
           echo "WRT_HASH=$(git log -1 --pretty=format:'\%h')" >> $GITHUB_ENV
           [ -f "./scripts/projectsmirrors.json" ] && sed -i '/.cn\//d; /tencent/d; /aliyun/d' ./scripts/projectsmirrors.json
 
       - name: Normalize Scripts (dos2unix)
         run: |
-          find . -maxdepth 1 -type f -iregex ".*\.\(sh\Vert{}txt\Vert{}config\)$" -exec dos2unix {} \; -exec chmod +x {} \;
+          find . -maxdepth 2 -type f \( -name "*.sh" -o -name "*.txt" -o -name ".config" \) -exec dos2unix {} \; -exec chmod +x {} \;
 
       - name: Manage Build Caches
         if: ${{ inputs.TEST_MODE != true }}
@@ -168,12 +168,17 @@ jobs:
             mkdir -p ./wrt/tmp && echo "1" > ./wrt/tmp/.build
           fi
 
-      - name: Update Feeds
+      - name: Run diy.sh & Update Feeds
+        env:
+          EXTRA_PACKAGES: ${{ inputs.EXTRA_PACKAGES }}
         run: |
+          export WRT_PACKAGE="$EXTRA_PACKAGES"
+          bash "$GITHUB_WORKSPACE/diy.sh"
           cd ./wrt/
           ./scripts/feeds update -a
+          ./scripts/feeds install -a
 
-      - name: Apply Config & Run diy.sh
+      - name: Apply Config & Defconfig
         env:
           EXTRA_PACKAGES: ${{ inputs.EXTRA_PACKAGES }}
         run: |
@@ -182,15 +187,7 @@ jobs:
           if [ -n "$EXTRA_PACKAGES" ]; then
             echo -e "\n$EXTRA_PACKAGES" >> .config
           fi
-
-          export WRT_PACKAGE="$EXTRA_PACKAGES"
-          bash "$GITHUB_WORKSPACE/diy.sh"
-
-      - name: Install Feeds
-        run: |
-          cd ./wrt/
-          ./scripts/feeds install -a
-          make defconfig -j$(nproc) && make clean -j$(nproc)
+          make defconfig
 
       - name: Download Dependency Source Packages
         if: ${{ inputs.TEST_MODE != true }}
