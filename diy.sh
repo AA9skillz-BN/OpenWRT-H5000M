@@ -141,14 +141,18 @@ if [ -f "$CFG_FILE" ]; then
 	sed -i "s/hostname='.*'/hostname='$WRT_NAME'/g" "$CFG_FILE"
 fi
 
-# 绑定你的 GitHub 仓库到 OTA 升级插件
+# ==========================================
+# 预置并绑定你的 GitHub 仓库与国内加速到 OTA 升级插件
+# ==========================================
 OTA_CONF="$WRT_ROOT/package/base-files/files/etc/config/ota"
 mkdir -p "$(dirname "$OTA_CONF")"
 cat > "$OTA_CONF" <<EOF
 config ota 'settings'
 	option repo 'AA9skillz-BN/OpenWRT-H5000M'
 	option branch 'master'
+	option mirror 'https://ghfast.top/'
 EOF
+echo "Custom OTA repository 'AA9skillz-BN/OpenWRT-H5000M' and mirror has been bound!"
 
 {
 	echo "CONFIG_PACKAGE_luci=y"
@@ -168,6 +172,6 @@ if [ -n "$WRT_PACKAGE" ]; then
 fi
 
 echo " "
-echo "=========================================="
-echo ">>> diy.sh 全部执行完毕！"
-echo "=========================================="
+echo"=========================================="
+echo ">>> diy.sh 全部执行完毕! "
+echo"=========================================="
