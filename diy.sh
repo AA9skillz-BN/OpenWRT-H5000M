@@ -120,10 +120,22 @@ fi
 echo " "
 echo ">>> [3/3] 开始注入系统配置与默认参数..."
 
-sed -i "/attendedsysupgrade/d" $(find "$FEEDS_LUCI/collections/" -type f -name "Makefile" 2>/dev/null)
-sed -i "s/luci-theme-bootstrap/luci-theme-$WRT_THEME/g" $(find "$FEEDS_LUCI/collections/" -type f -name "Makefile" 2>/dev/null)
-sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $(find "$FEEDS_LUCI/modules/luci-mod-system/" -type f -name "flash.js" 2>/dev/null)
-sed -i "s/(\(luciversion || ''\))/(\1) + (' \/ $WRT_MARK-$WRT_DATE')/g" $(find "$FEEDS_LUCI/modules/luci-mod-status/" -type f -name "10_system.js" 2>/dev/null)
+# 修复潜在的子shell匹配逻辑及路径安全
+COLLECTIONS_MAKEFILE=$(find "$FEEDS_LUCI/collections/" -type f -name "Makefile" 2>/dev/null)
+if [ -n "$COLLECTIONS_MAKEFILE" ]; then
+	sed -i "/attendedsysupgrade/d" $COLLECTIONS_MAKEFILE
+	sed -i "s/luci-theme-bootstrap/luci-theme-$WRT_THEME/g" $COLLECTIONS_MAKEFILE
+fi
+
+FLASH_JS=$(find "$FEEDS_LUCI/modules/luci-mod-system/" -type f -name "flash.js" 2>/dev/null)
+if [ -n "$FLASH_JS" ]; then
+	sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $FLASH_JS
+fi
+
+SYSTEM_JS=$(find "$FEEDS_LUCI/modules/luci-mod-status/" -type f -name "10_system.js" 2>/dev/null)
+if [ -n "$SYSTEM_JS" ]; then
+	sed -i "s/(\(luciversion || ''\))/(\1) + (' \/ $WRT_MARK-$WRT_DATE')/g" $SYSTEM_JS
+fi
 
 WIFI_SH=$(find "$WRT_ROOT/target/linux/mediatek/filogic/base-files/etc/uci-defaults/" -type f -name "*set-wireless.sh" 2>/dev/null | head -n 1)
 WIFI_UC="$WRT_ROOT/package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc"
@@ -172,6 +184,6 @@ if [ -n "$WRT_PACKAGE" ]; then
 fi
 
 echo " "
-echo"=========================================="
+echo "=========================================="
 echo ">>> diy.sh 全部执行完毕! "
-echo"=========================================="
+echo "=========================================="
