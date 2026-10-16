@@ -132,10 +132,9 @@ jobs:
           echo "WRT_REPO=https://github.com/$REPO.git" >> $GITHUB_ENV
           echo "WRT_SOURCE=$REPO" >> $GITHUB_ENV
           echo "WRT_BRANCH=$BRANCH" >> $GITHUB_ENV
-          echo "WRT_INFO=$(echo "$REPO" | cut -d'/' -f1)" >> $GITHUB_ENV
+          echo "WRT_INFO=$(echo "$REPO" \vert{} cut -d'/' -f1)" >> $GITHUB_ENV
           echo "WRT_DATE=$(TZ=UTC-8 date +'\%y.\%m.\%d-\%H.\%M.\%S')" >> $GITHUB_ENV
-          echo "WRT_MARK=$(echo "$GITHUB_REPOSITORY" | cut -d'/' -f1)" >> $GITHUB_ENV
-         
+          echo "WRT_MARK=$(echo "$GITHUB_REPOSITORY" \vert{} cut -d'/' -f1)" >> $GITHUB_ENV
           echo "WRT_TARGET=mediatek_filogic" >> $GITHUB_ENV
 
       - name: Clone OpenWrt Source
@@ -173,10 +172,12 @@ jobs:
         env:
           EXTRA_PACKAGES: ${{ inputs.EXTRA_PACKAGES }}
         run: |
-          export WRT_PACKAGE="$EXTRA_PACKAGES"
-          bash "$GITHUB_WORKSPACE/diy.sh"
           cd ./wrt/
           ./scripts/feeds update -a
+          export WRT_PACKAGE="$EXTRA_PACKAGES"
+          bash "$GITHUB_WORKSPACE/diy.sh"
+          # 移除导致 miniupnpd 2.3.11 编译失败的失效补丁
+          rm -f ./feeds/packages/net/miniupnpd/patches/020-descr-filter-fix.patch
           ./scripts/feeds install -a
 
       - name: Apply Config & Defconfig
