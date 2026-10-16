@@ -28,7 +28,6 @@ UPDATE_PACKAGE() {
 
 	echo " "
 
-	# 清理 feeds 中可能存在的同名旧包
 	for NAME in "${PKG_LIST[@]}"; do
 		echo "Search directory: $NAME"
 		local FOUND_DIRS=$(find "$FEEDS_LUCI" "$FEEDS_PACKAGES" -maxdepth 3 -type d -iname "*$NAME*" 2>/dev/null)
@@ -43,7 +42,6 @@ UPDATE_PACKAGE() {
 		fi
 	done
 
-	# 克隆到 package/ 目录
 	cd "$PKG_PATH" || return 1
 	git clone --depth=1 --single-branch --branch "$PKG_BRANCH" "https://github.com/$PKG_REPO.git"
 
@@ -77,7 +75,6 @@ UPDATE_PACKAGE "luci-app-h5000m-fancontrol" "FAN789/luci-app-h5000m-fancontrol" 
 UPDATE_PACKAGE "luci-app-mt5700m" "FAN789/luci-app-mt5700m" "main"
 UPDATE_PACKAGE "luci-app-h5000m-netmode" "FAN789/luci-app-h5000m-netmode" "main"
 
-# 引入私有扩展脚本
 if [ -f "$GITHUB_WORKSPACE/PRIVATE.sh" ]; then
 	source "$GITHUB_WORKSPACE/PRIVATE.sh"
 elif [ -f "$GITHUB_WORKSPACE/Scripts/PRIVATE.sh" ]; then
@@ -91,14 +88,12 @@ fi
 echo " "
 echo ">>> [2/3] 开始修补配置文件..."
 
-# 修改 argon 主题
 ARGON_CFG="$(find "$PKG_PATH" -type f -path "*/luci-app-argon-config/root/etc/config/argon" 2>/dev/null | head -n 1)"
 if [ -f "$ARGON_CFG" ]; then
 	sed -i "s/primary '.*'/primary '#31a1a1'/; s/'0.2'/'0.5'/; s/'none'/'bing'/; s/'600'/'normal'/" "$ARGON_CFG"
 	echo "theme-argon has been fixed!"
 fi
 
-# 修改 aurora 菜单式样
 AURORA_DIR="$(find "$PKG_PATH" -type d -path "*/luci-app-aurora-config/root/usr/share/aurora" 2>/dev/null | head -n 1)"
 if [ -d "$AURORA_DIR" ]; then
 	find "$AURORA_DIR" -type f -name '*.template' -exec \
@@ -106,14 +101,12 @@ if [ -d "$AURORA_DIR" ]; then
 	echo "theme-aurora has been fixed!"
 fi
 
-# 修改 mini-diskmanager 菜单位置
 MINI_DM_JSON="$(find "$PKG_PATH" -type f -name "luci-app-mini-diskmanager.json" 2>/dev/null | head -n 1)"
 if [ -f "$MINI_DM_JSON" ]; then
 	sed -i "s/services/system/g" "$MINI_DM_JSON"
 	echo "mini-diskmanager has been fixed!"
 fi
 
-# 修复 Rust 编译问题
 RUST_MAKEFILE="$(find "$FEEDS_PACKAGES" -maxdepth 3 -type f -wholename '*/rust/Makefile' 2>/dev/null | head -n 1)"
 if [ -f "$RUST_MAKEFILE" ]; then
 	sed -i 's/ci-llvm=true/ci-llvm=false/g' "$RUST_MAKEFILE"
@@ -127,19 +120,11 @@ fi
 echo " "
 echo ">>> [3/3] 开始注入系统配置与默认参数..."
 
-# 移除 luci-app-attendedsysupgrade
 sed -i "/attendedsysupgrade/d" $(find "$FEEDS_LUCI/collections/" -type f -name "Makefile" 2>/dev/null)
-
-# 修改默认主题
 sed -i "s/luci-theme-bootstrap/luci-theme-$WRT_THEME/g" $(find "$FEEDS_LUCI/collections/" -type f -name "Makefile" 2>/dev/null)
-
-# 修改 immortalwrt.lan 关联 IP
 sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" $(find "$FEEDS_LUCI/modules/luci-mod-system/" -type f -name "flash.js" 2>/dev/null)
-
-# 添加编译日期标识
 sed -i "s/(\(luciversion || ''\))/(\1) + (' \/ $WRT_MARK-$WRT_DATE')/g" $(find "$FEEDS_LUCI/modules/luci-mod-status/" -type f -name "10_system.js" 2>/dev/null)
 
-# 修改默认 Wi-Fi SSID 与密码
 WIFI_SH=$(find "$WRT_ROOT/target/linux/mediatek/filogic/base-files/etc/uci-defaults/" -type f -name "*set-wireless.sh" 2>/dev/null | head -n 1)
 WIFI_UC="$WRT_ROOT/package/network/config/wifi-scripts/files/lib/wifi/mac80211.uc"
 if [ -f "$WIFI_SH" ]; then
@@ -150,14 +135,21 @@ elif [ -f "$WIFI_UC" ]; then
 	sed -i "s/key='.*'/key='$WRT_WORD'/g" "$WIFI_UC"
 fi
 
-# 修改默认 IP 与 Hostname
 CFG_FILE="$WRT_ROOT/package/base-files/files/bin/config_generate"
 if [ -f "$CFG_FILE" ]; then
 	sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" "$CFG_FILE"
 	sed -i "s/hostname='.*'/hostname='$WRT_NAME'/g" "$CFG_FILE"
 fi
 
-# 基础 LuCI 与主题配置追加
+# 绑定你的 GitHub 仓库到 OTA 升级插件
+OTA_CONF="$WRT_ROOT/package/base-files/files/etc/config/ota"
+mkdir -p "$(dirname "$OTA_CONF")"
+cat > "$OTA_CONF" <<EOF
+config ota 'settings'
+	option repo 'AA9skillz-BN/OpenWRT-H5000M'
+	option branch 'master'
+EOF
+
 {
 	echo "CONFIG_PACKAGE_luci=y"
 	echo "CONFIG_LUCI_LANG_zh_Hans=y"
@@ -165,16 +157,12 @@ fi
 	echo "CONFIG_PACKAGE_luci-app-$WRT_THEME-config=y"
 } >> "$WRT_ROOT/.config"
 
-# 引入私有扩展配置
 if [ -f "$GITHUB_WORKSPACE/PRIVATE.txt" ]; then
-	echo "Applying private configurations from PRIVATE.txt..."
 	cat "$GITHUB_WORKSPACE/PRIVATE.txt" >> "$WRT_ROOT/.config"
 elif [ -f "$GITHUB_WORKSPACE/Config/PRIVATE.txt" ]; then
-	echo "Applying private configurations from Config/PRIVATE.txt..."
 	cat "$GITHUB_WORKSPACE/Config/PRIVATE.txt" >> "$WRT_ROOT/.config"
 fi
 
-# 手动调整插件追加
 if [ -n "$WRT_PACKAGE" ]; then
 	echo -e "$WRT_PACKAGE" >> "$WRT_ROOT/.config"
 fi
