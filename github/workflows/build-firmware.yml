@@ -1,0 +1,247 @@
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 VIKINGYFY
+
+name: Build H5000M Firmware
+
+on:
+  schedule:
+    - cron: '0 21 * * *'
+  workflow_dispatch:
+    inputs:
+      SOURCE_REPO:
+        description: '源码仓库'
+        default: 'immortalwrt/immortalwrt'
+        required: true
+        type: choice
+        options:
+          - immortalwrt/immortalwrt
+          - VIKINGYFY/immortalwrt
+      SOURCE_BRANCH:
+        description: '源码分支'
+        default: 'master'
+        required: true
+        type: string
+      EXTRA_PACKAGES:
+        description: '临时追加的插件配置（多行按换行分隔）'
+        required: false
+        type: string
+      TEST_MODE:
+        description: '仅校验并输出 .config，不进行完整编译'
+        default: false
+        required: true
+        type: boolean
+      CLEAN_OLD_RELEASES:
+        description: '编译前清理历史 Release 与 Tag'
+        default: true
+        required: true
+        type: boolean
+
+permissions: write-all
+
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  WRT_THEME: aurora
+  WRT_NAME: OWRT
+  WRT_SSID: OWRT
+  WRT_WORD: '12345678'
+  WRT_IP: 192.168.10.1
+  WRT_PW: 无
+  DEFAULT_REPO: immortalwrt/immortalwrt
+  DEFAULT_BRANCH: master
+
+jobs:
+  build:
+    name: Build Firmware
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Clean Old Releases and Tags
+        if: ${{ github.event_name == 'schedule' || inputs.CLEAN_OLD_RELEASES == true }}
+        uses: ophub/delete-releases-workflows@main
+        with:
+          gh_token: ${{ secrets.GITHUB_TOKEN }}
+          delete_releases: true
+          releases_keep_latest: 0
+          delete_tags: true
+          delete_workflows: true
+          workflows_keep_day: 30
+
+      - name: Clean Orphaned Tags
+        if: ${{ github.event_name == 'schedule' || inputs.CLEAN_OLD_RELEASES == true }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            let tags = [];
+            let page = 1;
+            while (true) {
+              const res = await github.rest.repos.listTags({ owner, repo, per_page: 100, page });
+              if (res.data.length === 0) break;
+              tags = tags.concat(res.data);
+              page++;
+            }
+            for (const t of tags) {
+              await github.rest.git.deleteRef({ owner, repo, ref: `tags/${t.name}` });
+            }
+
+      - name: Initialize Build Environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo tee /etc/apt/apt.conf.d/99marvis-timeouts >/dev/null <<'EOF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "60";
+          Acquire::https::Timeout "60";
+          Acquire::ftp::Timeout "60";
+          DPkg::Lock::Timeout "120";
+          EOF
+
+          apt_retry() {
+            local cmd="$1"; shift
+            for i in 1 2 3; do
+              timeout 300 sudo -E apt -yqq "$cmd" "$@" && return 0
+              sleep 10
+            done
+            return 1
+          }
+
+          apt_retry purge firefox
+          apt_retry update
+          apt_retry full-upgrade
+          apt_retry autoremove --purge
+          apt_retry autoclean
+          apt_retry clean
+          apt_retry install dos2unix libfuse-dev jq unzip
+
+          for i in 1 2 3; do
+            timeout 600 sudo bash -c 'bash <(curl -sL --retry 3 --connect-timeout 30 https://build-scripts.immortalwrt.org/init_build_environment.sh)' && break
+            sleep 10
+          done
+
+          sudo -E systemctl daemon-reload
+          sudo -E timedatectl set-timezone "Asia/Shanghai"
+
+          sudo mkdir -p /mnt/build_wrt
+          sudo chown $USER:$USER /mnt/build_wrt
+          sudo ln -s /mnt/build_wrt $GITHUB_WORKSPACE/wrt
+
+      - name: Prepare Dynamic Environment Variables
+        run: |
+          REPO="${{ inputs.SOURCE_REPO || env.DEFAULT_REPO }}"
+          BRANCH="${{ inputs.SOURCE_BRANCH || env.DEFAULT_BRANCH }}"
+          echo "WRT_REPO=https://github.com/$REPO.git" >> $GITHUB_ENV
+          echo "WRT_SOURCE=$REPO" >> $GITHUB_ENV
+          echo "WRT_BRANCH=$BRANCH" >> $GITHUB_ENV
+          echo "WRT_INFO=${REPO\%\%/*}" >> $GITHUB_ENV
+          echo "WRT_DATE=$(TZ=UTC-8 date +'\%y.\%m.\%d-\%H.\%M.\%S')" >> $GITHUB_ENV
+          echo "WRT_MARK=${GITHUB_REPOSITORY\%\%/*}" >> $GITHUB_ENV
+          echo "WRT_TARGET=mediatek_filogic" >> $GITHUB_ENV
+
+      - name: Clone OpenWrt Source
+        run: |
+          git clone --depth=1 --single-branch --branch $WRT_BRANCH$WRT_REPO ./wrt/
+          cd ./wrt/
+          echo "WRT_HASH=$(git log -1 --pretty=format:'\%h')" >> $GITHUB_ENV
+          [ -f "./scripts/projectsmirrors.json" ] && sed -i '/.cn\//d; /tencent/d; /aliyun/d' ./scripts/projectsmirrors.json
+
+      - name: Normalize Scripts (dos2unix)
+        run: |
+          find . -maxdepth 1 -type f -iregex ".*\.\(sh\Vert{}txt\Vert{}config\)$" -exec dos2unix {} \; -exec chmod +x {} \;
+
+      - name: Manage Build Caches
+        if: ${{ inputs.TEST_MODE != true }}
+        id: cache-restore
+        uses: actions/cache@v4
+        with:
+          key: H5000M-${{ env.WRT_INFO }}-${{ env.WRT_HASH }}
+          restore-keys: H5000M-${{ env.WRT_INFO }}
+          path: |
+            ./wrt/.ccache
+            ./wrt/staging_dir/host*
+            ./wrt/staging_dir/tool*
+
+      - name: Touch Stamps on Cache Hit
+        if: ${{ inputs.TEST_MODE != true }}
+        run: |
+          if [ -d "./wrt/staging_dir" ]; then
+            find "./wrt/staging_dir" -type d -name "stamp" -not -path "*target*" -exec touch {} + 2>/dev/null || true
+            mkdir -p ./wrt/tmp && echo "1" > ./wrt/tmp/.build
+          fi
+
+      - name: Update Feeds
+        run: |
+          cd ./wrt/
+          ./scripts/feeds update -a
+
+      - name: Apply Config & Run diy.sh
+        env:
+          EXTRA_PACKAGES: ${{ inputs.EXTRA_PACKAGES }}
+        run: |
+          cd ./wrt/
+          cp -f "$GITHUB_WORKSPACE/.config" .config
+          if [ -n "$EXTRA_PACKAGES" ]; then
+            echo -e "\n$EXTRA_PACKAGES" >> .config
+          fi
+
+          export WRT_PACKAGE="$EXTRA_PACKAGES"
+          bash "$GITHUB_WORKSPACE/diy.sh"
+
+      - name: Install Feeds
+        run: |
+          cd ./wrt/
+          ./scripts/feeds install -a
+          make defconfig -j$(nproc) && make clean -j$(nproc)
+
+      - name: Download Dependency Source Packages
+        if: ${{ inputs.TEST_MODE != true }}
+        run: |
+          cd ./wrt/
+          make download -j$(nproc)
+
+      - name: Compile Firmware
+        if: ${{ inputs.TEST_MODE != true }}
+        run: |
+          cd ./wrt/
+          make -j$(nproc) || make -j1 V=s
+
+      - name: Package Firmware Outputs
+        run: |
+          cd ./wrt/
+          mkdir -p ./upload/
+          cp -f ./.config ./upload/Config-H5000M-"$WRT_INFO"-"$WRT_BRANCH"-"$WRT_DATE".txt
+
+          if [ "${{ inputs.TEST_MODE }}" != "true" ]; then
+            echo "WRT_KVER=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^kernel - \K[\d\.]+' {} \; \vert{} head -n 1)" >> $GITHUB_ENV
+            echo "WRT_LIST=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^luci-(app\vert{}theme)[^ ]*' {} \; \vert{} tr '\n' ' ')" >> $GITHUB_ENV
+
+            find ./bin/targets/ -iregex ".*\(buildinfo\Vert{}json\Vert{}sha256sums\Vert{}packages\)$" -exec rm -rf {} + 2>/dev/null || true
+
+            for FILE in $(find ./bin/targets/ -type f -iname "*$WRT_TARGET*"); do
+              EXT=$(basename "$FILE" | cut -d '.' -f 2-)
+              NAME=$(basename "$FILE" | cut -d '.' -f 1 | grep -io "\($WRT_TARGET\).*")
+              NEW_FILE="$NAME-$WRT_INFO-$WRT_BRANCH-$WRT_DATE.$EXT"
+              mv -f "$FILE" "./upload/$NEW_FILE"
+            done
+
+            find ./bin/targets/ -type f -exec mv -f {} ./upload/ \; 2>/dev/null || true
+          fi
+
+      - name: Release Firmware Artifacts
+        if: ${{ inputs.TEST_MODE != true }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: H5000M-${{ env.WRT_INFO }}-${{ env.WRT_BRANCH }}-${{ env.WRT_DATE }}
+          files: ./wrt/upload/*.*
+          body: |
+            ### Hiveton H5000M (MT5700M) 5G CPE 定制固件
+            * **源码地址**：${{ env.WRT_REPO }}
+            * **编译分支**：${{ env.WRT_BRANCH }}
+            * **提交哈希**：${{ env.WRT_HASH }}
+            * **内核版本**：${{ env.WRT_KVER }}
+            * **默认网关**：${{ env.WRT_IP }}
+            * **默认后台密码**：${{ env.WRT_PW }}
+            * **默认 Wi-Fi**：${{ env.WRT_SSID }} (密码: ${{ env.WRT_WORD }})
+            * **集成插件列表**：${{ env.WRT_LIST }}
