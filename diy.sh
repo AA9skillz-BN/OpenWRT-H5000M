@@ -30,7 +30,7 @@ UPDATE_PACKAGE() {
 
 	for NAME in "${PKG_LIST[@]}"; do
 		echo "Search directory: $NAME"
-		local FOUND_DIRS=$(find "$FEEDS_LUCI" "$FEEDS_PACKAGES" -maxdepth 3 -type d -iname "*$NAME*" 2>/dev/null)
+		local FOUND_DIRS=$(find "$FEEDS_LUCI" "$FEEDS_PACKAGES" "$PKG_PATH/feeds" -maxdepth 3 \( -type d -o -type l \) -iname "*$NAME*" 2>/dev/null)
 
 		if [ -n "$FOUND_DIRS" ]; then
 			while read -r DIR; do
