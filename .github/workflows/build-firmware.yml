@@ -174,12 +174,13 @@ jobs:
           cd ./wrt/
           cp -f "$GITHUB_WORKSPACE/.config" .config
           ./scripts/feeds update -a
-          export WRT_PACKAGE="$EXTRA_PACKAGES"
-          bash "$GITHUB_WORKSPACE/diy.sh"
           # 彻底移除导致 miniupnpd 2.3.11 编译失败的所有冲突旧补丁
           rm -rf ./feeds/packages/net/miniupnpd/patches
           ./scripts/feeds install -a
-
+          export WRT_PACKAGE="$EXTRA_PACKAGES"
+          bash "$GITHUB_WORKSPACE/diy.sh"
+          ./scripts/feeds install -a
+      
       - name: Apply Defconfig
         run: |
           cd ./wrt/
