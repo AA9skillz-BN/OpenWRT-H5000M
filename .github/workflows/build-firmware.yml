@@ -134,7 +134,7 @@ jobs:
           echo "WRT_INFO=$(echo "$REPO" \vert{} cut -d'/' -f1)" >> $GITHUB_ENV
           echo "WRT_DATE=$(TZ=UTC-8 date +'\%y.\%m.\%d-\%H.\%M.\%S')" >> $GITHUB_ENV
           echo "WRT_MARK=$(echo "$GITHUB_REPOSITORY" \vert{} cut -d'/' -f1)" >> $GITHUB_ENV
-          echo "WRT_TARGET=mediatek_filogic" >> $GITHUB_ENV
+          echo "WRT_TARGET=mediatek-filogic" >> $GITHUB_ENV
 
       - name: Clone OpenWrt Source
         run: |
