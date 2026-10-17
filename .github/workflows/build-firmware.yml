@@ -37,7 +37,7 @@ permissions: write-all
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  WRT_THEME: aurora   # <--- 把这里的 argon 改为 aurora
+  WRT_THEME: argon
   WRT_NAME: OWRT
   WRT_SSID: OWRT
   WRT_WORD: '12345678'
@@ -176,11 +176,12 @@ jobs:
           ./scripts/feeds update -a
           # 彻底移除导致 miniupnpd 2.3.11 编译失败的所有冲突旧补丁
           rm -rf ./feeds/packages/net/miniupnpd/patches
-          ./scripts/feeds install -a
           export WRT_PACKAGE="$EXTRA_PACKAGES"
           bash "$GITHUB_WORKSPACE/diy.sh"
-          ./scripts/feeds install -a
-      
+          # 强制重新生成索引并安装所有 feeds 与自定义包，解决 argon 主题找不到包的问题
+          ./scripts/feeds update -i
+          ./scripts/feeds install -a -f
+
       - name: Apply Defconfig
         run: |
           cd ./wrt/
