@@ -56,8 +56,9 @@ UPDATE_PACKAGE() {
 
 echo ">>> [1/3] 开始拉取自定义软件包..."
 
-# 主题
+# 主题与主题配置插件 (完整支持 Argon 与 Aurora)
 UPDATE_PACKAGE "argon" "sbwml/luci-theme-argon" "master"
+UPDATE_PACKAGE "argon-config" "jerrykuku/luci-app-argon-config" "master"
 UPDATE_PACKAGE "aurora" "eamonxg/luci-theme-aurora" "master"
 UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
 
@@ -65,10 +66,11 @@ UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
 UPDATE_PACKAGE "openclash" "vernesong/OpenClash" "dev" "pkg"
 UPDATE_PACKAGE "easytier" "EasyTier/luci-app-easytier" "main"
 
-# 实用系统管理工具
+# 实用系统管理与 5G 短信网页端工具
 UPDATE_PACKAGE "diskmanager" "4IceG/luci-app-mini-diskmanager" "main"
 UPDATE_PACKAGE "partexp" "sirpdboy/luci-app-partexp" "main"
 UPDATE_PACKAGE "viking" "VIKINGYFY/packages" "main" "" "gecoosac luci-app-wolultra"
+UPDATE_PACKAGE "sms-tool-js" "4IceG/luci-app-sms-tool-js" "master"
 
 # H5000M / MT5700M 5G 模组控制插件
 UPDATE_PACKAGE "luci-app-h5000m-fancontrol" "FAN789/luci-app-h5000m-fancontrol" "main"
@@ -82,11 +84,11 @@ elif [ -f "$GITHUB_WORKSPACE/Scripts/PRIVATE.sh" ]; then
 fi
 
 # ==============================================================================
-# 第二部分：运行期修补
+# 第二部分：运行期修补与预置内核
 # ==============================================================================
 
 echo " "
-echo ">>> [2/3] 开始修补配置文件..."
+echo ">>> [2/3] 开始修补配置文件并预置 OpenClash 内核..."
 
 ARGON_CFG="$(find "$PKG_PATH" -type f -path "*/luci-app-argon-config/root/etc/config/argon" 2>/dev/null | head -n 1)"
 if [ -f "$ARGON_CFG" ]; then
@@ -113,6 +115,20 @@ if [ -f "$RUST_MAKEFILE" ]; then
 	echo "rust Makefile has been fixed!"
 fi
 
+# 预置 OpenClash Meta (Mihomo) arm64 内核与 Geo 数据库，实现刷机即用
+CLASH_CORE_DIR="$WRT_ROOT/package/base-files/files/etc/openclash/core"
+CLASH_DATA_DIR="$WRT_ROOT/package/base-files/files/etc/openclash"
+mkdir -p "$CLASH_CORE_DIR"
+curl -sL --retry 3 --connect-timeout 20 "https://raw.githubusercontent.com/vernesong/OpenClash/core/dev/meta/clash-linux-arm64.tar.gz" | tar xz -C "$CLASH_CORE_DIR" 2>/dev/null
+if [ -f "$CLASH_CORE_DIR/clash" ]; then
+	mv -f "$CLASH_CORE_DIR/clash" "$CLASH_CORE_DIR/clash_meta"
+	chmod +x "$CLASH_CORE_DIR/clash_meta"
+	echo "OpenClash Meta core has been pre-installed!"
+fi
+curl -sL --retry 3 -o "$CLASH_DATA_DIR/GeoIP.dat" "https://testingcf.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geoip.dat" 2>/dev/null
+curl -sL --retry 3 -o "$CLASH_DATA_DIR/GeoSite.dat" "https://testingcf.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geosite.dat" 2>/dev/null
+chmod 644 "$CLASH_DATA_DIR/GeoIP.dat" "$CLASH_DATA_DIR/GeoSite.dat" 2>/dev/null || true
+
 # ==============================================================================
 # 第三部分：系统配置与网络参数调整
 # ==============================================================================
@@ -120,7 +136,6 @@ fi
 echo " "
 echo ">>> [3/3] 开始注入系统配置与默认参数..."
 
-# 修复：先检查文件是否存在再执行 sed，避免 "no input files" 报错
 COLLECTIONS_MAKEFILE=$(find "$FEEDS_LUCI/collections/" -type f -name "Makefile" 2>/dev/null | head -n 1)
 if [ -n "$COLLECTIONS_MAKEFILE" ]; then
 	sed -i "/attendedsysupgrade/d" "$COLLECTIONS_MAKEFILE"
@@ -132,7 +147,6 @@ if [ -n "$FLASH_JS" ]; then
 	sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" "$FLASH_JS"
 fi
 
-# 修复：修正正则表达式中的非法反向引用 \2 报错
 SYSTEM_JS=$(find "$FEEDS_LUCI/modules/luci-mod-status/" -type f -name "10_system.js" 2>/dev/null | head -n 1)
 if [ -n "$SYSTEM_JS" ]; then
 	sed -i "s/\(luciversion || ''\)/\1 + ' \/ $WRT_MARK-$WRT_DATE'/g" "$SYSTEM_JS"
@@ -153,6 +167,18 @@ if [ -f "$CFG_FILE" ]; then
 	sed -i "s/192\.168\.[0-9]*\.[0-9]*/$WRT_IP/g" "$CFG_FILE"
 	sed -i "s/hostname='.*'/hostname='$WRT_NAME'/g" "$CFG_FILE"
 fi
+
+# 5G CPE 防运营商热点限速检测：固定数据包 TTL 为 64
+NFT_TTL_DIR="$WRT_ROOT/package/base-files/files/etc/nftables.d"
+mkdir -p "$NFT_TTL_DIR"
+cat > "$NFT_TTL_DIR/99-ttl-fix.nft" <<'EOF'
+chain mangle_postrouting_ttl {
+	type filter hook postrouting priority 300; policy accept;
+	ip ttl set 64
+	ip6 hoplimit set 64
+}
+EOF
+echo "5G CPE TTL=64 anti-detection rule has been injected!"
 
 # ==========================================
 # 预置并绑定你的 GitHub 仓库与国内加速到 OTA 升级插件
