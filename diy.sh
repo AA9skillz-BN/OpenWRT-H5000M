@@ -30,7 +30,7 @@ UPDATE_PACKAGE() {
 
 	for NAME in "${PKG_LIST[@]}"; do
 		echo "Search directory: $NAME"
-		local FOUND_DIRS=$(find "$FEEDS_LUCI" "$FEEDS_PACKAGES" "$PKG_PATH/feeds" -maxdepth 3 \( -type d -o -type l \) -iname "*$NAME*" 2>/dev/null)
+		local FOUND_DIRS=$(find "$FEEDS_LUCI" "$FEEDS_PACKAGES" "$PKG_PATH/feeds" "$PKG_PATH" -maxdepth 3 \( -type d -o -type l \) -iname "*$NAME*" 2>/dev/null)
 
 		if [ -n "$FOUND_DIRS" ]; then
 			while read -r DIR; do
@@ -43,7 +43,8 @@ UPDATE_PACKAGE() {
 	done
 
 	cd "$PKG_PATH" || return 1
-	git clone --depth=1 --single-branch --branch "$PKG_BRANCH" "https://github.com/$PKG_REPO.git"
+	git clone --depth=1 --single-branch --branch "$PKG_BRANCH" "https://github.com/$PKG_REPO.git" || \
+		git clone --depth=1 "https://github.com/$PKG_REPO.git"
 
 	if [[ "$PKG_SPECIAL" == "pkg" ]]; then
 		find ./"$REPO_NAME"/*/ -maxdepth 3 -type d -iname "*$PKG_NAME*" -prune -exec cp -rf {} ./ \;
@@ -56,7 +57,7 @@ UPDATE_PACKAGE() {
 
 echo ">>> [1/3] 开始拉取自定义软件包..."
 
-# 主题与主题配置插件 (sbwml/luci-theme-argon 仓库内已同时包含主题与 argon-config)
+# 主题与主题配置插件 (sbwml/luci-theme-argon 内已自带主题与 luci-app-argon-config)
 UPDATE_PACKAGE "argon" "sbwml/luci-theme-argon" "master"
 UPDATE_PACKAGE "aurora" "eamonxg/luci-theme-aurora" "master"
 UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
@@ -65,15 +66,15 @@ UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
 UPDATE_PACKAGE "openclash" "vernesong/OpenClash" "dev" "pkg"
 UPDATE_PACKAGE "easytier" "EasyTier/luci-app-easytier" "main"
 
-# 实用系统管理与 5G 短信网页端工具 (修正分支名为 main)
+# 实用系统管理与 5G 短信网页端工具
 UPDATE_PACKAGE "diskmanager" "4IceG/luci-app-mini-diskmanager" "main"
 UPDATE_PACKAGE "partexp" "sirpdboy/luci-app-partexp" "main"
 UPDATE_PACKAGE "viking" "VIKINGYFY/packages" "main" "" "gecoosac luci-app-wolultra"
 UPDATE_PACKAGE "sms-tool-js" "4IceG/luci-app-sms-tool-js" "main"
 
-# H5000M / MT5700M 5G 模组控制插件
+# H5000M / MT5700M 5G 模组控制插件 (彻底清理 mt5700/mt5700m 旧目录，拉取 LianXia233/luci-app-mt5700m)
 UPDATE_PACKAGE "luci-app-h5000m-fancontrol" "FAN789/luci-app-h5000m-fancontrol" "main"
-UPDATE_PACKAGE "luci-app-mt5700m" "FAN789/luci-app-mt5700m" "main"
+UPDATE_PACKAGE "luci-app-mt5700m" "LianXia233/luci-app-mt5700m" "main" "" "luci-app-mt5700 mt5700"
 UPDATE_PACKAGE "luci-app-h5000m-netmode" "FAN789/luci-app-h5000m-netmode" "main"
 
 if [ -f "$GITHUB_WORKSPACE/PRIVATE.sh" ]; then
@@ -89,7 +90,7 @@ fi
 echo " "
 echo ">>> [2/3] 开始修补配置文件并预置 OpenClash 内核..."
 
-ARGON_CFG="$(find "$PKG_PATH" -type f -path "*/luci-app-argon-config/root/etc/config/argon" 2>/dev/null | head -n 1)"
+ARGON_CFG="$(find "$PKG_PATH" "$FEEDS_LUCI" -type f -path "*/luci-app-argon-config/root/etc/config/argon" 2>/dev/null | head -n 1)"
 if [ -f "$ARGON_CFG" ]; then
 	sed -i "s/primary '.*'/primary '#31a1a1'/; s/'0.2'/'0.5'/; s/'none'/'bing'/; s/'600'/'normal'/" "$ARGON_CFG"
 	echo "theme-argon has been fixed!"
@@ -114,10 +115,10 @@ if [ -f "$RUST_MAKEFILE" ]; then
 	echo "rust Makefile has been fixed!"
 fi
 
-# 预置 OpenClash Meta (Mihomo) arm64 内核到 $WRT_ROOT/files 覆盖层（避免与 ipk 包产生冲突）
+# 预置 OpenClash Meta (Mihomo) arm64 内核到 $WRT_ROOT/files 覆盖层（设置 30 秒最大超时防卡死）
 CLASH_CORE_DIR="$WRT_ROOT/files/etc/openclash/core"
 mkdir -p "$CLASH_CORE_DIR"
-if curl -sL --retry 3 --connect-timeout 20 "https://raw.githubusercontent.com/vernesong/OpenClash/core/dev/meta/clash-linux-arm64.tar.gz" | tar xz -C "$CLASH_CORE_DIR" 2>/dev/null; then
+if curl -sL --retry 2 --connect-timeout 15 --max-time 30 "https://raw.githubusercontent.com/vernesong/OpenClash/core/dev/meta/clash-linux-arm64.tar.gz" | tar xz -C "$CLASH_CORE_DIR" 2>/dev/null; then
 	if [ -f "$CLASH_CORE_DIR/clash" ]; then
 		mv -f "$CLASH_CORE_DIR/clash" "$CLASH_CORE_DIR/clash_meta"
 		chmod +x "$CLASH_CORE_DIR/clash_meta"
