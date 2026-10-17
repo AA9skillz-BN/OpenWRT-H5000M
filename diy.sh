@@ -56,9 +56,8 @@ UPDATE_PACKAGE() {
 
 echo ">>> [1/3] 开始拉取自定义软件包..."
 
-# 主题与主题配置插件 (完整支持 Argon 与 Aurora)
+# 主题与主题配置插件 (sbwml/luci-theme-argon 仓库内已同时包含主题与 argon-config)
 UPDATE_PACKAGE "argon" "sbwml/luci-theme-argon" "master"
-UPDATE_PACKAGE "argon-config" "jerrykuku/luci-app-argon-config" "master"
 UPDATE_PACKAGE "aurora" "eamonxg/luci-theme-aurora" "master"
 UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
 
@@ -66,11 +65,11 @@ UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
 UPDATE_PACKAGE "openclash" "vernesong/OpenClash" "dev" "pkg"
 UPDATE_PACKAGE "easytier" "EasyTier/luci-app-easytier" "main"
 
-# 实用系统管理与 5G 短信网页端工具
+# 实用系统管理与 5G 短信网页端工具 (修正分支名为 main)
 UPDATE_PACKAGE "diskmanager" "4IceG/luci-app-mini-diskmanager" "main"
 UPDATE_PACKAGE "partexp" "sirpdboy/luci-app-partexp" "main"
 UPDATE_PACKAGE "viking" "VIKINGYFY/packages" "main" "" "gecoosac luci-app-wolultra"
-UPDATE_PACKAGE "sms-tool-js" "4IceG/luci-app-sms-tool-js" "master"
+UPDATE_PACKAGE "sms-tool-js" "4IceG/luci-app-sms-tool-js" "main"
 
 # H5000M / MT5700M 5G 模组控制插件
 UPDATE_PACKAGE "luci-app-h5000m-fancontrol" "FAN789/luci-app-h5000m-fancontrol" "main"
@@ -115,19 +114,16 @@ if [ -f "$RUST_MAKEFILE" ]; then
 	echo "rust Makefile has been fixed!"
 fi
 
-# 预置 OpenClash Meta (Mihomo) arm64 内核与 Geo 数据库，实现刷机即用
-CLASH_CORE_DIR="$WRT_ROOT/package/base-files/files/etc/openclash/core"
-CLASH_DATA_DIR="$WRT_ROOT/package/base-files/files/etc/openclash"
+# 预置 OpenClash Meta (Mihomo) arm64 内核到 $WRT_ROOT/files 覆盖层（避免与 ipk 包产生冲突）
+CLASH_CORE_DIR="$WRT_ROOT/files/etc/openclash/core"
 mkdir -p "$CLASH_CORE_DIR"
-curl -sL --retry 3 --connect-timeout 20 "https://raw.githubusercontent.com/vernesong/OpenClash/core/dev/meta/clash-linux-arm64.tar.gz" | tar xz -C "$CLASH_CORE_DIR" 2>/dev/null
-if [ -f "$CLASH_CORE_DIR/clash" ]; then
-	mv -f "$CLASH_CORE_DIR/clash" "$CLASH_CORE_DIR/clash_meta"
-	chmod +x "$CLASH_CORE_DIR/clash_meta"
-	echo "OpenClash Meta core has been pre-installed!"
+if curl -sL --retry 3 --connect-timeout 20 "https://raw.githubusercontent.com/vernesong/OpenClash/core/dev/meta/clash-linux-arm64.tar.gz" | tar xz -C "$CLASH_CORE_DIR" 2>/dev/null; then
+	if [ -f "$CLASH_CORE_DIR/clash" ]; then
+		mv -f "$CLASH_CORE_DIR/clash" "$CLASH_CORE_DIR/clash_meta"
+		chmod +x "$CLASH_CORE_DIR/clash_meta"
+		echo "OpenClash Meta core has been pre-installed!"
+	fi
 fi
-curl -sL --retry 3 -o "$CLASH_DATA_DIR/GeoIP.dat" "https://testingcf.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geoip.dat" 2>/dev/null
-curl -sL --retry 3 -o "$CLASH_DATA_DIR/GeoSite.dat" "https://testingcf.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geosite.dat" 2>/dev/null
-chmod 644 "$CLASH_DATA_DIR/GeoIP.dat" "$CLASH_DATA_DIR/GeoSite.dat" 2>/dev/null || true
 
 # ==============================================================================
 # 第三部分：系统配置与网络参数调整
@@ -136,10 +132,9 @@ chmod 644 "$CLASH_DATA_DIR/GeoIP.dat" "$CLASH_DATA_DIR/GeoSite.dat" 2>/dev/null 
 echo " "
 echo ">>> [3/3] 开始注入系统配置与默认参数..."
 
-COLLECTIONS_MAKEFILE=$(find "$FEEDS_LUCI/collections/" -type f -name "Makefile" 2>/dev/null | head -n 1)
-if [ -n "$COLLECTIONS_MAKEFILE" ]; then
-	sed -i "/attendedsysupgrade/d" "$COLLECTIONS_MAKEFILE"
-	sed -i "s/luci-theme-bootstrap/luci-theme-$WRT_THEME/g" "$COLLECTIONS_MAKEFILE"
+if [ -d "$FEEDS_LUCI/collections" ]; then
+	find "$FEEDS_LUCI/collections/" -type f -name "Makefile" -exec sed -i "/attendedsysupgrade/d" {} +
+	find "$FEEDS_LUCI/collections/" -type f -name "Makefile" -exec sed -i "s/luci-theme-bootstrap/luci-theme-$WRT_THEME/g" {} +
 fi
 
 FLASH_JS=$(find "$FEEDS_LUCI/modules/luci-mod-system/" -type f -name "flash.js" 2>/dev/null | head -n 1)
@@ -169,7 +164,7 @@ if [ -f "$CFG_FILE" ]; then
 fi
 
 # 5G CPE 防运营商热点限速检测：固定数据包 TTL 为 64
-NFT_TTL_DIR="$WRT_ROOT/package/base-files/files/etc/nftables.d"
+NFT_TTL_DIR="$WRT_ROOT/files/etc/nftables.d"
 mkdir -p "$NFT_TTL_DIR"
 cat > "$NFT_TTL_DIR/99-ttl-fix.nft" <<'EOF'
 chain mangle_postrouting_ttl {
@@ -183,7 +178,7 @@ echo "5G CPE TTL=64 anti-detection rule has been injected!"
 # ==========================================
 # 预置并绑定你的 GitHub 仓库与国内加速到 OTA 升级插件
 # ==========================================
-OTA_CONF="$WRT_ROOT/package/base-files/files/etc/config/ota"
+OTA_CONF="$WRT_ROOT/files/etc/config/ota"
 mkdir -p "$(dirname "$OTA_CONF")"
 cat > "$OTA_CONF" <<EOF
 config ota 'settings'
