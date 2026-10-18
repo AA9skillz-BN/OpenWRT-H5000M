@@ -60,7 +60,7 @@ jobs:
         with:
           gh_token: ${{ secrets.GITHUB_TOKEN }}
           delete_releases: true
-          releases_keep_latest: 3
+          releases_keep_latest: 2
           delete_tags: true
           delete_workflows: false
 
@@ -71,16 +71,13 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo } = context.repo;
-            let tags = [];
-            let page = 1;
-            while (true) {
-              const res = await github.rest.repos.listTags({ owner, repo, per_page: 100, page });
-              if (res.data.length === 0) break;
-              tags = tags.concat(res.data);
-              page++;
-            }
+            const releases = await github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 });
+            const activeTags = new Set(releases.map(r => r.tag_name).filter(Boolean));
+            const tags = await github.paginate(github.rest.repos.listTags, { owner, repo, per_page: 100 });
             for (const t of tags) {
-              await github.rest.git.deleteRef({ owner, repo, ref: `tags/${t.name}` });
+              if (!activeTags.has(t.name)) {
+                await github.rest.git.deleteRef({ owner, repo, ref: `tags/${t.name}` });
+              }
             }
 
       - name: Initialize Build Environment
