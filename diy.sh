@@ -57,8 +57,7 @@ UPDATE_PACKAGE() {
 
 echo ">>> [1/3] 开始拉取自定义软件包..."
 
-# 主题与主题配置插件 (sbwml/luci-theme-argon 内已自带主题与 luci-app-argon-config)
-UPDATE_PACKAGE "argon" "sbwml/luci-theme-argon" "master"
+# 主题与主题配置插件 (Argon 直接使用 ImmortalWrt 官方 feeds 原生自带版本，仅额外拉取 Aurora 备选)
 UPDATE_PACKAGE "aurora" "eamonxg/luci-theme-aurora" "master"
 UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
 
@@ -66,10 +65,10 @@ UPDATE_PACKAGE "aurora-config" "eamonxg/luci-app-aurora-config" "master"
 UPDATE_PACKAGE "openclash" "vernesong/OpenClash" "dev" "pkg"
 UPDATE_PACKAGE "easytier" "EasyTier/luci-app-easytier" "main"
 
-# 实用系统管理与 5G 短信网页端工具
+# 实用系统管理与 5G 短信网页端工具 (包含 gecoosac、wolultra 与 luci-app-ota)
 UPDATE_PACKAGE "diskmanager" "4IceG/luci-app-mini-diskmanager" "main"
 UPDATE_PACKAGE "partexp" "sirpdboy/luci-app-partexp" "main"
-UPDATE_PACKAGE "viking" "VIKINGYFY/packages" "main" "" "gecoosac luci-app-wolultra"
+UPDATE_PACKAGE "viking" "VIKINGYFY/packages" "main" "" "gecoosac luci-app-wolultra luci-app-ota"
 UPDATE_PACKAGE "sms-tool-js" "4IceG/luci-app-sms-tool-js" "main"
 
 # H5000M / MT5700M 5G 模组控制插件 (彻底清理 mt5700/mt5700m 旧目录，拉取 LianXia233/luci-app-mt5700m)
