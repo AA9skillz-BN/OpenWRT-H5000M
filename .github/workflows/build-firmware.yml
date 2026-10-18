@@ -128,19 +128,23 @@ jobs:
         run: |
           REPO="${{ inputs.SOURCE_REPO || env.DEFAULT_REPO }}"
           BRANCH="${{ inputs.SOURCE_BRANCH || env.DEFAULT_BRANCH }}"
+          INFO_CLEAN="${REPO%%/*}"
+          MARK_CLEAN="${GITHUB_REPOSITORY%%/*}"
+          DATE_CLEAN=$(TZ=UTC-8 date +'%y.%m.%d-%H.%M.%S')
           echo "WRT_REPO=https://github.com/$REPO.git" >> $GITHUB_ENV
           echo "WRT_SOURCE=$REPO" >> $GITHUB_ENV
           echo "WRT_BRANCH=$BRANCH" >> $GITHUB_ENV
-          echo "WRT_INFO=$(echo "$REPO" \vert{} cut -d'/' -f1)" >> $GITHUB_ENV
-          echo "WRT_DATE=$(TZ=UTC-8 date +'\%y.\%m.\%d-\%H.\%M.\%S')" >> $GITHUB_ENV
-          echo "WRT_MARK=$(echo "$GITHUB_REPOSITORY" \vert{} cut -d'/' -f1)" >> $GITHUB_ENV
+          echo "WRT_INFO=$INFO_CLEAN" >> $GITHUB_ENV
+          echo "WRT_DATE=$DATE_CLEAN" >> $GITHUB_ENV
+          echo "WRT_MARK=$MARK_CLEAN" >> $GITHUB_ENV
           echo "WRT_TARGET=mediatek-filogic" >> $GITHUB_ENV
 
       - name: Clone OpenWrt Source
         run: |
           git clone --depth=1 --single-branch --branch "$WRT_BRANCH" "$WRT_REPO" ./wrt/
           cd ./wrt/
-          echo "WRT_HASH=$(git log -1 --pretty=format:'\%h')" >> $GITHUB_ENV
+          HASH_CLEAN=$(git log -1 --pretty=format:'%h')
+          echo "WRT_HASH=$HASH_CLEAN" >> $GITHUB_ENV
           [ -f "./scripts/projectsmirrors.json" ] && sed -i '/.cn\//d; /tencent/d; /aliyun/d' ./scripts/projectsmirrors.json
 
       - name: Normalize Scripts (dos2unix)
@@ -174,11 +178,9 @@ jobs:
           cd ./wrt/
           cp -f "$GITHUB_WORKSPACE/.config" .config
           ./scripts/feeds update -a
-          # 彻底移除导致 miniupnpd 2.3.11 编译失败的所有冲突旧补丁
           rm -rf ./feeds/packages/net/miniupnpd/patches
           export WRT_PACKAGE="$EXTRA_PACKAGES"
           bash "$GITHUB_WORKSPACE/diy.sh"
-          # 强制重新生成索引并安装所有 feeds 与自定义包，解决 argon 主题找不到包的问题
           ./scripts/feeds update -i
           ./scripts/feeds install -a -f
 
@@ -203,19 +205,25 @@ jobs:
         run: |
           cd ./wrt/
           mkdir -p ./upload/
-          cp -f ./.config ./upload/Config-H5000M-"$WRT_INFO"-"$WRT_BRANCH"-"$WRT_DATE".txt
+          SAFE_INFO="${WRT_INFO//\//_}"
+          SAFE_BRANCH="${WRT_BRANCH//\//_}"
+          SAFE_DATE="${WRT_DATE//\//-}"
+          cp -f ./.config "./upload/Config-H5000M-${SAFE_INFO}-${SAFE_BRANCH}-${SAFE_DATE}.txt"
 
           if [ "${{ inputs.TEST_MODE }}" != "true" ]; then
-            echo "WRT_KVER=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^kernel - \K[\d\.]+' {} \; \vert{} head -n 1)" >> $GITHUB_ENV
-            echo "WRT_LIST=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^luci-(app\vert{}theme)[^ ]*' {} \; \vert{} tr '\n' ' ')" >> $GITHUB_ENV
+            KVER_VAL=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^kernel - \K[\d\.]+' {} \; | head -n 1)
+            LIST_VAL=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^luci-(app|theme)[^ ]*' {} \; | tr '\n' ' ')
+            echo "WRT_KVER=$KVER_VAL" >> $GITHUB_ENV
+            echo "WRT_LIST=$LIST_VAL" >> $GITHUB_ENV
 
             # 清理无用文件，但保留 sha256sums 校验文件给 OTA 使用
-            find ./bin/targets/ -iregex ".*\(buildinfo\Vert{}json\Vert{}packages\)$" -exec rm -rf {} + 2>/dev/null || true
+            find ./bin/targets/ -type f \( -name "*.buildinfo" -o -name "*.json" \) -delete 2>/dev/null || true
+            find ./bin/targets/ -type d -name "packages" -exec rm -rf {} + 2>/dev/null || true
 
             for FILE in $(find ./bin/targets/ -type f -iname "*$WRT_TARGET*"); do
               EXT=$(basename "$FILE" | cut -d '.' -f 2-)
               NAME=$(basename "$FILE" | cut -d '.' -f 1 | grep -io "\($WRT_TARGET\).*")
-              NEW_FILE="$NAME-$WRT_INFO-$WRT_BRANCH-$WRT_DATE.$EXT"
+              NEW_FILE="${NAME}-${SAFE_INFO}-${SAFE_BRANCH}-${SAFE_DATE}.${EXT}"
               mv -f "$FILE" "./upload/$NEW_FILE"
             done
 
