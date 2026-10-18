@@ -179,10 +179,13 @@ jobs:
           cp -f "$GITHUB_WORKSPACE/.config" .config
           ./scripts/feeds update -a
           rm -rf ./feeds/packages/net/miniupnpd/patches
+          # 先完整安装官方 Feeds（确保官方原生 Argon 主题与配置插件正常建立软链接）
+          ./scripts/feeds install -a
           export WRT_PACKAGE="$EXTRA_PACKAGES"
           bash "$GITHUB_WORKSPACE/diy.sh"
-          ./scripts/feeds update -i
-          ./scripts/feeds install -a -f
+          # 再次安装并清理 tmp 缓存，确保 diy.sh 新拉取的插件被 make defconfig 完整扫描
+          ./scripts/feeds install -a
+          rm -rf ./tmp
 
       - name: Apply Defconfig
         run: |
