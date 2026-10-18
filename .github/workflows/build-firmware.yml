@@ -179,11 +179,9 @@ jobs:
           cp -f "$GITHUB_WORKSPACE/.config" .config
           ./scripts/feeds update -a
           rm -rf ./feeds/packages/net/miniupnpd/patches
-          # 先完整安装官方 Feeds（确保官方原生 Argon 主题与配置插件正常建立软链接）
           ./scripts/feeds install -a
           export WRT_PACKAGE="$EXTRA_PACKAGES"
           bash "$GITHUB_WORKSPACE/diy.sh"
-          # 再次安装并清理 tmp 缓存，确保 diy.sh 新拉取的插件被 make defconfig 完整扫描
           ./scripts/feeds install -a
           rm -rf ./tmp
 
@@ -219,18 +217,17 @@ jobs:
             echo "WRT_KVER=$KVER_VAL" >> $GITHUB_ENV
             echo "WRT_LIST=$LIST_VAL" >> $GITHUB_ENV
 
-            # 清理无用文件，但保留 sha256sums 校验文件给 OTA 使用
-            find ./bin/targets/ -type f \( -name "*.buildinfo" -o -name "*.json" \) -delete 2>/dev/null || true
-            find ./bin/targets/ -type d -name "packages" -exec rm -rf {} + 2>/dev/null || true
-
-            for FILE in $(find ./bin/targets/ -type f -iname "*$WRT_TARGET*"); do
+            # 仅提取 H5000M 正式升级固件 (sysupgrade)，彻底剔除 bl2.bin、initramfs 和 manifest 等杂项
+            for FILE in $(find ./bin/targets/ -type f -iname "*hiveton_h5000m*sysupgrade*"); do
               EXT=$(basename "$FILE" | cut -d '.' -f 2-)
               NAME=$(basename "$FILE" | cut -d '.' -f 1 | grep -io "\($WRT_TARGET\).*")
               NEW_FILE="${NAME}-${SAFE_INFO}-${SAFE_BRANCH}-${SAFE_DATE}.${EXT}"
               mv -f "$FILE" "./upload/$NEW_FILE"
             done
 
-            find ./bin/targets/ -type f -exec mv -f {} ./upload/ \; 2>/dev/null || true
+            # 为提取出的纯净固件重新生成对应的 sha256sums 校验文件（供一键 OTA 使用）
+            cd ./upload/
+            sha256sum *sysupgrade* > sha256sums 2>/dev/null || true
           fi
 
       - name: Release Firmware Artifacts
@@ -238,7 +235,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: H5000M-${{ env.WRT_INFO }}-${{ env.WRT_BRANCH }}-${{ env.WRT_DATE }}
-          files: ./wrt/upload/*.*
+          files: ./wrt/upload/*
           body: |
             ### Hiveton H5000M (MT5700M) 5G CPE 定制固件
             * **源码地址**：${{ env.WRT_REPO }}
